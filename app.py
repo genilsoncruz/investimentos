@@ -13,7 +13,7 @@ from ta.momentum import RSIIndicator
 from ta.trend import SMAIndicator
 
 # ==========================================
-# CONFIG
+# CONFIG STREAMLIT
 # ==========================================
 
 st.set_page_config(
@@ -21,13 +21,18 @@ st.set_page_config(
     layout="wide"
 )
 
-ARQUIVO_CARTEIRA = "carteira.csv"
+# ==========================================
+# CONFIGURAÇÕES
+# ==========================================
+
+ARQUIVO_CSV = "carteira.csv"
 
 # ==========================================
-# CACHE
+# FUNÇÕES AUXILIARES
 # ==========================================
 
 def limpar_ticker(ticker):
+
     ticker = (
         str(ticker)
         .strip()
@@ -41,8 +46,58 @@ def limpar_ticker(ticker):
 
     return ticker
 
+
+def normalizar_colunas(df):
+
+    df.columns = [
+        c.lower()
+        .strip()
+        .replace(" ", "_")
+        .replace("%", "pct")
+        .replace("/", "_")
+        .replace(".", "")
+        .replace("ç", "c")
+        .replace("ã", "a")
+        .replace("á", "a")
+        .replace("é", "e")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ú", "u")
+        for c in df.columns
+    ]
+
+    return df
+
+# ==========================================
+# LEITURA CSV
+# ==========================================
+
+@st.cache_data
+def carregar_carteira():
+
+    df = pd.read_csv(
+        ARQUIVO_CSV,
+        sep=";",
+        encoding="utf-8-sig"
+    )
+
+    df = normalizar_colunas(df)
+
+    # limpa tickers
+    df["ativo"] = (
+        df["ativo"]
+        .astype(str)
+        .apply(limpar_ticker)
+    )
+
+    return df
+
+# ==========================================
+# YAHOO FINANCE
+# ==========================================
+
 @st.cache_data(ttl=3600)
-def baixar_historico(ticker, periodo="1y"):
+def baixar_historico(ticker, periodo="2y"):
 
     ticker_limpo = limpar_ticker(ticker)
 
@@ -53,6 +108,7 @@ def baixar_historico(ticker, periodo="1y"):
     historico = ativo.history(period=periodo)
 
     if historico.empty:
+
         raise Exception(
             f"Sem dados para {ticker_yf}"
         )
@@ -60,64 +116,78 @@ def baixar_historico(ticker, periodo="1y"):
     dividendos = ativo.dividends
 
     return historico, dividendos
-    
+
 # ==========================================
 # INDICADORES
 # ==========================================
 
-def calcular_indicadores(df, dividendos):
+def calcular_indicadores(historico, dividendos):
 
-    mensal = df.resample("M").last()
+    mensal = historico.resample("ME").last()
 
-    mensal["Retorno"] = mensal["Close"].pct_change()
+    mensal["retorno"] = (
+        mensal["Close"].pct_change()
+    )
 
-    # MM
-    mensal["MM9"] = SMAIndicator(
+    # Médias móveis
+    mensal["mm9"] = SMAIndicator(
         mensal["Close"],
         window=9
     ).sma_indicator()
 
-    mensal["MM21"] = SMAIndicator(
+    mensal["mm21"] = SMAIndicator(
         mensal["Close"],
         window=21
     ).sma_indicator()
 
     # RSI
-    mensal["RSI"] = RSIIndicator(
+    mensal["rsi"] = RSIIndicator(
         mensal["Close"],
         window=14
     ).rsi()
 
-    # Drawdown
-    rolling_max = mensal["Close"].cummax()
-
-    mensal["Drawdown"] = (
-        mensal["Close"] - rolling_max
-    ) / rolling_max
-
     # Momentum
-    mensal["Momentum"] = (
+    mensal["momentum"] = (
         mensal["Close"].pct_change(6)
     )
 
+    # Drawdown
+    rolling_max = mensal["Close"].cummax()
+
+    mensal["drawdown"] = (
+        mensal["Close"] - rolling_max
+    ) / rolling_max
+
+    # Volatilidade
+    mensal["volatilidade"] = (
+        mensal["retorno"]
+        .rolling(6)
+        .std()
+        * np.sqrt(12)
+    )
+
     # Dividendos
-    dividendos = dividendos.resample("M").sum()
+    dividendos = (
+        dividendos
+        .resample("ME")
+        .sum()
+    )
 
-    mensal["Dividendos"] = dividendos
+    mensal["dividendos"] = dividendos
 
-    mensal["Dividendos"] = (
-        mensal["Dividendos"]
+    mensal["dividendos"] = (
+        mensal["dividendos"]
         .fillna(0)
     )
 
-    mensal["Dividendos_12M"] = (
-        mensal["Dividendos"]
+    mensal["dividendos_12m"] = (
+        mensal["dividendos"]
         .rolling(12)
         .sum()
     )
 
-    mensal["DY"] = (
-        mensal["Dividendos_12M"]
+    mensal["dy"] = (
+        mensal["dividendos_12m"]
         / mensal["Close"]
     ) * 100
 
@@ -131,43 +201,65 @@ def calcular_score(df):
 
     ultimo = df.iloc[-1]
 
+    # =====================
+    # SCORE QUANT
+    # =====================
+
     score_quant = 0
 
-    # Tendência
-    if ultimo["MM9"] > ultimo["MM21"]:
+    # tendência
+    if ultimo["mm9"] > ultimo["mm21"]:
         score_quant += 30
 
     # RSI
-    if 40 <= ultimo["RSI"] <= 70:
+    if 40 <= ultimo["rsi"] <= 70:
         score_quant += 20
 
-    # Momentum
-    if ultimo["Momentum"] > 0:
+    # momentum
+    if ultimo["momentum"] > 0:
         score_quant += 20
 
-    # Drawdown
-    if ultimo["Drawdown"] > -0.20:
+    # drawdown
+    if ultimo["drawdown"] > -0.20:
         score_quant += 20
 
-    # Dividend Yield
+    # volatilidade
+    if (
+        pd.notnull(ultimo["volatilidade"])
+        and ultimo["volatilidade"] < 0.30
+    ):
+        score_quant += 10
+
+    # =====================
+    # SCORE FUND
+    # =====================
+
     score_fund = 0
 
-    if ultimo["DY"] >= 10:
-        score_fund += 40
+    dy = ultimo["dy"]
 
-    elif ultimo["DY"] >= 6:
+    if pd.notnull(dy):
+
+        if dy >= 10:
+            score_fund += 40
+
+        elif dy >= 6:
+            score_fund += 30
+
+        elif dy >= 4:
+            score_fund += 20
+
+    # dividendos consistentes
+    if ultimo["dividendos_12m"] > 0:
         score_fund += 30
 
-    elif ultimo["DY"] >= 4:
-        score_fund += 20
-
-    # Dividendos consistentes
-    if ultimo["Dividendos_12M"] > 0:
+    # drawdown moderado
+    if ultimo["drawdown"] > -0.30:
         score_fund += 30
 
-    # Drawdown saudável
-    if ultimo["Drawdown"] > -0.30:
-        score_fund += 30
+    # =====================
+    # SCORE FINAL
+    # =====================
 
     score_final = (
         score_fund * 0.7
@@ -176,22 +268,33 @@ def calcular_score(df):
     )
 
     return {
-        "score_final": round(score_final, 2),
-        "score_fund": score_fund,
-        "score_quant": score_quant,
-        "dy": round(ultimo["DY"], 2),
-        "rsi": round(ultimo["RSI"], 2),
-        "drawdown": round(
-            ultimo["Drawdown"] * 100,
+        "dy": round(
+            float(ultimo["dy"]),
             2
-        )
+        ) if pd.notnull(ultimo["dy"]) else 0,
+
+        "rsi": round(
+            float(ultimo["rsi"]),
+            2
+        ) if pd.notnull(ultimo["rsi"]) else 0,
+
+        "drawdown": round(
+            float(ultimo["drawdown"] * 100),
+            2
+        ) if pd.notnull(ultimo["drawdown"]) else 0,
+
+        "score_quant": round(score_quant, 2),
+
+        "score_fund": round(score_fund, 2),
+
+        "score_final": round(score_final, 2)
     }
 
 # ==========================================
 # RECOMENDAÇÃO
 # ==========================================
 
-def recomendacao(score):
+def gerar_recomendacao(score):
 
     if score >= 70:
         return "MANTER"
@@ -207,9 +310,12 @@ def recomendacao(score):
 
 def calcular_resgate(df_carteira, valor_resgate):
 
-    carteira_ordenada = df_carteira.sort_values(
-        by="Score",
-        ascending=True
+    carteira_ordenada = (
+        df_carteira
+        .sort_values(
+            by="score",
+            ascending=True
+        )
     )
 
     restante = valor_resgate
@@ -221,15 +327,15 @@ def calcular_resgate(df_carteira, valor_resgate):
         if restante <= 0:
             break
 
-        preco = row["Preço Atual"]
+        preco = float(row["preco_atual"])
 
-        qtd_disponivel = row["Disp. P/ Venda"]
-
-        valor_total_ativo = (
-            preco * qtd_disponivel
+        qtd_disponivel = int(
+            row["disp_p_venda"]
         )
 
-        # quantidade sugerida
+        if qtd_disponivel <= 0:
+            continue
+
         qtd_venda = min(
             qtd_disponivel,
             int(restante // preco) + 1
@@ -237,31 +343,47 @@ def calcular_resgate(df_carteira, valor_resgate):
 
         subtotal = qtd_venda * preco
 
-        if qtd_venda <= 0:
+        if subtotal <= 0:
             continue
 
-        comentario = ""
+        # comentário
+        if row["score"] < 50:
 
-        if row["Score"] < 50:
             comentario = (
                 "Baixo score e deterioração"
             )
 
-        elif row["Score"] < 70:
+        elif row["score"] < 70:
+
             comentario = (
                 "Tendência enfraquecida"
             )
 
         else:
+
             comentario = (
                 "Resgate complementar"
             )
 
         sugestoes.append({
-            "Ativo": row["Ativo"],
+
+            "Ativo": row["ativo"],
+
             "Quantidade": qtd_venda,
+
             "Preço": round(preco, 2),
+
             "Subtotal": round(subtotal, 2),
+
+            "Score": round(
+                row["score"],
+                2
+            ),
+
+            "Recomendação": row[
+                "recomendacao"
+            ],
+
             "Comentário": comentario
         })
 
@@ -270,28 +392,34 @@ def calcular_resgate(df_carteira, valor_resgate):
     return pd.DataFrame(sugestoes)
 
 # ==========================================
-# LEITURA CSV
+# TÍTULO
 # ==========================================
 
 st.title("📈 Carteira B3")
 
+# ==========================================
+# CARREGA CSV
+# ==========================================
+
 try:
 
-    carteira = pd.read_csv(ARQUIVO_CARTEIRA, sep=";")
+    carteira = carregar_carteira()
 
-    carteira["Ativo"] = (
-        carteira["Ativo"]
-        .astype(str)
-        .str.strip()
-        .str.replace("\u00A0", "", regex=False)
-        .str.replace(" ", "", regex=False)
-        .str.upper()
-    )
 except Exception as e:
 
-    st.error(f"Erro ao carregar CSV: {e}")
+    st.error(
+        f"Erro ao carregar CSV: {e}"
+    )
 
     st.stop()
+
+# ==========================================
+# DEBUG
+# ==========================================
+
+with st.expander("DEBUG CSV"):
+
+    st.write(carteira.columns.tolist())
 
 # ==========================================
 # PROCESSAMENTO
@@ -303,17 +431,21 @@ with st.spinner("Processando ativos..."):
 
     for _, row in carteira.iterrows():
 
-        ticker = row["Ativo"]
+        ticker = row["ativo"]
 
         try:
 
-            historico, dividendos = baixar_historico(
-                ticker
+            historico, dividendos = (
+                baixar_historico(
+                    ticker
+                )
             )
 
-            indicadores = calcular_indicadores(
-                historico,
-                dividendos
+            indicadores = (
+                calcular_indicadores(
+                    historico,
+                    dividendos
+                )
             )
 
             score = calcular_score(
@@ -321,26 +453,68 @@ with st.spinner("Processando ativos..."):
             )
 
             resultado.append({
-                "Ativo": ticker,
-                "Descrição": row["Descrição"],
-                "Carteira": row["Carteira"],
-                "Preço Atual": row["Preço Atual"],
-                "Qtd Total": row["Qtd Total"],
-                "Valor Atual": row["Valor Atual"],
-                "DY": score["dy"],
-                "RSI": score["rsi"],
-                "Drawdown %": score["drawdown"],
-                "Score": score["score_final"],
-                "Recomendação": recomendacao(
-                    score["score_final"]
-                )
+
+                "ativo": ticker,
+
+                "descricao": row[
+                    "descricao"
+                ],
+
+                "carteira": row[
+                    "carteira"
+                ],
+
+                "preco_atual": row[
+                    "preco_atual"
+                ],
+
+                "valor_atual": row[
+                    "valor_atual"
+                ],
+
+                "qtd_total": row[
+                    "qtd_total"
+                ],
+
+                "disp_p_venda": row[
+                    "disp_p_venda"
+                ],
+
+                "dy": score["dy"],
+
+                "rsi": score["rsi"],
+
+                "drawdown": score[
+                    "drawdown"
+                ],
+
+                "score_quant": score[
+                    "score_quant"
+                ],
+
+                "score_fund": score[
+                    "score_fund"
+                ],
+
+                "score": score[
+                    "score_final"
+                ],
+
+                "recomendacao":
+                    gerar_recomendacao(
+                        score[
+                            "score_final"
+                        ]
+                    )
             })
 
         except Exception as e:
 
             st.warning(
-                f"Erro no ativo {ticker}: {e}"
+                f"{ticker}: {str(e)}"
             )
+
+            continue
 
 # ==========================================
 # DATAFRAME FINAL
@@ -349,12 +523,12 @@ with st.spinner("Processando ativos..."):
 df_resultado = pd.DataFrame(resultado)
 
 # ==========================================
-# DASHBOARD
+# TABS
 # ==========================================
 
 tab1, tab2 = st.tabs([
-    "Carteira",
-    "Resgate"
+    "📊 Carteira",
+    "💰 Resgate"
 ])
 
 # ==========================================
@@ -363,11 +537,13 @@ tab1, tab2 = st.tabs([
 
 with tab1:
 
-    st.subheader("📊 Análise da Carteira")
+    st.subheader(
+        "Análise da Carteira"
+    )
 
     st.dataframe(
         df_resultado.sort_values(
-            by="Score",
+            by="score",
             ascending=False
         ),
         use_container_width=True
@@ -379,7 +555,9 @@ with tab1:
 
 with tab2:
 
-    st.subheader("💰 Planejamento de Resgate")
+    st.subheader(
+        "Planejamento de Resgate"
+    )
 
     valor_resgate = st.number_input(
         "Valor desejado para resgate",
@@ -387,33 +565,44 @@ with tab2:
         step=100.0
     )
 
-    if st.button("Calcular Resgate"):
+    if st.button(
+        "Calcular Resgate"
+    ):
 
         sugestoes = calcular_resgate(
-            df_resultado.merge(
-                carteira,
-                on="Ativo"
-            ),
+            df_resultado,
             valor_resgate
         )
 
-        total = sugestoes["Subtotal"].sum()
+        if sugestoes.empty:
 
-        st.dataframe(
-            sugestoes,
-            use_container_width=True
-        )
+            st.warning(
+                "Nenhuma sugestão encontrada."
+            )
 
-        st.success(
-            f"Total sugerido: "
-            f"R$ {total:,.2f}"
-        )
+        else:
+
+            total = (
+                sugestoes[
+                    "Subtotal"
+                ].sum()
+            )
+
+            st.dataframe(
+                sugestoes,
+                use_container_width=True
+            )
+
+            st.success(
+                f"Total sugerido: "
+                f"R$ {total:,.2f}"
+            )
 
 # ==========================================
 # RODAPÉ
 # ==========================================
 
 st.caption(
-    "Sistema híbrido de análise "
-    "fundamentalista + quantitativa"
+    "Sistema híbrido "
+    "fundamentalista + quantitativo"
 )
