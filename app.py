@@ -256,7 +256,7 @@ st.title("📈 Carteira B3")
 
 try:
 
-    carteira = pd.read_csv(ARQUIVO_CARTEIRA)
+    carteira = pd.read_csv(ARQUIVO_CARTEIRA, sep=";")
 
 except Exception as e:
 
