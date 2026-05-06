@@ -1085,60 +1085,60 @@ with tab1:
         "Análise da Carteira"
     )
 
-# =====================================
-# TOTALIZADORES
-# =====================================
-
-st.subheader(
-    "Resumo por Recomendação"
-)
-
-resumo = (
-
-    df_ordenado
-
-    .groupby("recomendacao")
-
-    .agg({
-
-        "ativo": "count",
-
-        "qtd_total": "sum",
-
-        "valor_atual": "sum"
-
-    })
-
-    .reset_index()
-)
-
-resumo.columns = [
-
-    "Recomendação",
-
-    "Quantidade Ativos",
-
-    "Quantidade Total",
-
-    "Valor Total"
-]
-
-# formatação
-resumo["Valor Total"] = (
-
-    resumo["Valor Total"]
-
-    .apply(
-        lambda x:
-        f"R$ {x:,.2f}"
+    # =====================================
+    # TOTALIZADORES
+    # =====================================
+    
+    st.subheader(
+        "Resumo por Recomendação"
     )
-)
-
-st.dataframe(
-    resumo,
-    use_container_width=True
-)    
-
+    
+    resumo = (
+    
+        df_ordenado
+    
+        .groupby("recomendacao")
+    
+        .agg({
+    
+            "ativo": "count",
+    
+            "qtd_total": "sum",
+    
+            "valor_atual": "sum"
+    
+        })
+    
+        .reset_index()
+    )
+    
+    resumo.columns = [
+    
+        "Recomendação",
+    
+        "Quantidade Ativos",
+    
+        "Quantidade Total",
+    
+        "Valor Total"
+    ]
+    
+    # formatação
+    resumo["Valor Total"] = (
+    
+        resumo["Valor Total"]
+    
+        .apply(
+            lambda x:
+            f"R$ {x:,.2f}"
+        )
+    )
+    
+    st.dataframe(
+        resumo,
+        use_container_width=True
+    )  
+    
     st.dataframe(
         df_ordenado[
             [
