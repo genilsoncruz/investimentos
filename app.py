@@ -31,7 +31,7 @@ st.set_page_config(
 ARQUIVO_CSV = "carteira.csv"
 
 # quantidade máxima de ativos processados
-QTD_ATIVOS_BUSCAR = 10
+QTD_ATIVOS_BUSCAR = 0
 
 # período histórico Yahoo Finance
 PERIODO_HISTORICO = "730d"
@@ -165,6 +165,9 @@ def carregar_carteira():
         sep=";",
         encoding="utf-8-sig"
     )
+
+    if QTD_ATIVOS_BUSCAR == 0:
+        QTD_ATIVOS_BUSCAR = len(df)
 
     df = normalizar_colunas(df)
 
