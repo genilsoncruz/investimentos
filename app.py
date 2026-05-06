@@ -27,10 +27,26 @@ ARQUIVO_CARTEIRA = "carteira.csv"
 # CACHE
 # ==========================================
 
+def limpar_ticker(ticker):
+    ticker = (
+        str(ticker)
+        .strip()
+        .replace("\u00A0", "")
+        .replace(" ", "")
+        .upper()
+    )
+
+    if ticker.endswith(".SA"):
+        ticker = ticker.replace(".SA", "")
+
+    return ticker
+
 @st.cache_data(ttl=3600)
 def baixar_historico(ticker, periodo="1y"):
 
-    ticker_yf = f"{ticker}.SA"
+    ticker_limpo = limpar_ticker(ticker)
+
+    ticker_yf = f"{ticker_limpo}.SA"
 
     ativo = yf.Ticker(ticker_yf)
 
@@ -39,7 +55,7 @@ def baixar_historico(ticker, periodo="1y"):
     dividendos = ativo.dividends
 
     return historico, dividendos
-
+    
 # ==========================================
 # INDICADORES
 # ==========================================
