@@ -631,11 +631,10 @@ def calcular_resgate(
     valor_resgate
 ):
 
+    df = df_carteira.copy()
+
     # =====================================
-    # PRIORIZA:
-    # 1. RESGATE TOTAL
-    # 2. RESGATE PARCIAL
-    # 3. SCORE BAIXO
+    # PRIORIDADE
     # =====================================
 
     prioridade = {
@@ -647,51 +646,39 @@ def calcular_resgate(
         "MANTER": 3
     }
 
-    df_carteira[
-        "prioridade"
-    ] = (
-
-        df_carteira[
-            "recomendacao"
-        ]
-
+    df["prioridade"] = (
+        df["recomendacao"]
         .map(prioridade)
     )
 
-    carteira_ordenada = (
+    # =====================================
+    # ORDENAÇÃO
+    # =====================================
 
-        df_carteira
-
-        .sort_values(
-            by=[
-                "prioridade",
-                "score"
-            ],
-            ascending=True
-        )
+    df = df.sort_values(
+        by=[
+            "prioridade",
+            "score"
+        ],
+        ascending=[True, True]
     )
 
     restante = valor_resgate
 
     sugestoes = []
 
-    for _, row in (
-        carteira_ordenada
-        .iterrows()
-    ):
+    # =====================================
+    # LOOP
+    # =====================================
+
+    for _, row in df.iterrows():
 
         if restante <= 0:
             break
 
-        # ignora manter
-        if (
-            row[
-                "recomendacao"
-            ]
-            ==
-            "MANTER"
-        ):
-            continue
+        # =====================================
+        # PREÇO
+        # =====================================
 
         preco = row.get(
             "preco_atual",
@@ -705,6 +692,10 @@ def calcular_resgate(
 
         if preco <= 0:
             continue
+
+        # =====================================
+        # QUANTIDADE DISPONÍVEL
+        # =====================================
 
         qtd_disponivel = row.get(
             "disp_p_venda",
@@ -724,11 +715,20 @@ def calcular_resgate(
         if qtd_disponivel <= 0:
             continue
 
+        # =====================================
+        # QUANTIDADE NECESSÁRIA
+        # =====================================
+
+        qtd_necessaria = int(
+            restante // preco
+        )
+
+        if restante % preco > 0:
+            qtd_necessaria += 1
+
         qtd_venda = min(
             qtd_disponivel,
-            int(
-                restante // preco
-            ) + 1
+            qtd_necessaria
         )
 
         if qtd_venda <= 0:
@@ -738,38 +738,36 @@ def calcular_resgate(
             qtd_venda * preco
         )
 
-        comentario = ""
+        # =====================================
+        # COMENTÁRIO
+        # =====================================
 
-        if (
-            row[
-                "recomendacao"
-            ]
-            ==
-            "RESGATE TOTAL"
-        ):
+        recomendacao = row.get(
+            "recomendacao",
+            "MANTER"
+        )
+
+        if recomendacao == "RESGATE TOTAL":
 
             comentario = (
-                "Deterioração "
-                "estrutural"
+                "Ativo com "
+                "deterioração estrutural."
             )
 
-        elif (
-            row[
-                "recomendacao"
-            ]
-            ==
-            "RESGATE PARCIAL"
-        ):
+        elif recomendacao == "RESGATE PARCIAL":
 
             comentario = (
-                "Tendência "
-                "enfraquecida"
+                "Ativo com "
+                "enfraquecimento "
+                "de tendência."
             )
 
         else:
 
             comentario = (
-                "Resgate complementar"
+                "Utilizado para "
+                "complementar o "
+                "valor do resgate."
             )
 
         sugestoes.append({
@@ -793,15 +791,17 @@ def calcular_resgate(
                 ),
 
             "Recomendação":
-                row[
-                    "recomendacao"
-                ],
+                recomendacao,
 
             "Comentário":
                 comentario
         })
 
         restante -= subtotal
+
+    # =====================================
+    # RESULTADO
+    # =====================================
 
     return pd.DataFrame(
         sugestoes
