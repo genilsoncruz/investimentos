@@ -166,9 +166,6 @@ def carregar_carteira():
         encoding="utf-8-sig"
     )
 
-    if QTD_ATIVOS_BUSCAR == 0:
-        QTD_ATIVOS_BUSCAR = len(df)
-
     df = normalizar_colunas(df)
 
     df = converter_numeros(df)
@@ -748,6 +745,9 @@ try:
 
     carteira = carregar_carteira()
 
+    if QTD_ATIVOS_BUSCAR == 0:
+        QTD_ATIVOS_BUSCAR = len(df)
+        
 except Exception as e:
 
     st.error(
