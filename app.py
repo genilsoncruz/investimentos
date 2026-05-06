@@ -123,26 +123,44 @@ def converter_numeros(df):
 
         def tratar_numero(valor):
 
+            # =========================
+            # NULO
+            # =========================
+
             if pd.isna(valor):
-                return 0
+                return 0.0
+
+            # =========================
+            # JÁ NUMÉRICO
+            # =========================
+
+            if isinstance(valor, (int, float)):
+                return float(valor)
 
             valor = str(valor).strip()
 
             if valor == "":
-                return 0
+                return 0.0
+
+            # remove espaços
+            valor = valor.replace(" ", "")
 
             # =========================
-            # FORMATO BR:
+            # FORMATO:
             # 1.234,56
             # =========================
 
-            if "," in valor and "." in valor:
+            if (
+                "." in valor
+                and
+                "," in valor
+            ):
 
                 valor = valor.replace(".", "")
                 valor = valor.replace(",", ".")
 
             # =========================
-            # FORMATO BR:
+            # FORMATO:
             # 123,45
             # =========================
 
@@ -150,13 +168,23 @@ def converter_numeros(df):
 
                 valor = valor.replace(",", ".")
 
+            # =========================
+            # REMOVE LIXO
+            # =========================
+
+            valor = re.sub(
+                r"[^0-9\.-]",
+                "",
+                valor
+            )
+
             try:
 
                 return float(valor)
 
             except:
 
-                return 0
+                return 0.0
 
         df[col] = df[col].apply(
             tratar_numero
@@ -830,6 +858,27 @@ st.title(
 try:
 
     carteira = carregar_carteira()
+
+    st.write("DEBUG NUMÉRICO")
+
+    st.dataframe(
+    
+        carteira[
+            [
+    
+                "ativo",
+    
+                "preco_atual",
+    
+                "valor_atual",
+    
+                "qtd_total",
+    
+                "disp_p_venda"
+    
+            ]
+        ].head(20)
+    )
 
 except Exception as e:
 
