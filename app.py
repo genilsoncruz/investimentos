@@ -52,6 +52,11 @@ def baixar_historico(ticker, periodo="1y"):
 
     historico = ativo.history(period=periodo)
 
+    if historico.empty:
+        raise Exception(
+            f"Sem dados para {ticker_yf}"
+        )
+
     dividendos = ativo.dividends
 
     return historico, dividendos
@@ -274,6 +279,14 @@ try:
 
     carteira = pd.read_csv(ARQUIVO_CARTEIRA, sep=";")
 
+    carteira["Ativo"] = (
+        carteira["Ativo"]
+        .astype(str)
+        .str.strip()
+        .str.replace("\u00A0", "", regex=False)
+        .str.replace(" ", "", regex=False)
+        .str.upper()
+    )
 except Exception as e:
 
     st.error(f"Erro ao carregar CSV: {e}")
