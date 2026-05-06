@@ -34,7 +34,7 @@ ARQUIVO_CSV = "carteira.csv"
 QTD_ATIVOS_BUSCAR = 10
 
 # período histórico Yahoo Finance
-PERIODO_HISTORICO = "2y"
+PERIODO_HISTORICO = "730d"
 
 # ==========================================
 # FUNÇÕES AUXILIARES
@@ -191,7 +191,7 @@ def carregar_carteira():
 @st.cache_data(ttl=3600)
 def baixar_historico(
     ticker,
-    periodo="2y"
+    periodo="730d"
 ):
 
     ticker_limpo = limpar_ticker(
@@ -235,9 +235,14 @@ def calcular_indicadores(
 
     mensal = (
         historico
-        .resample("M")
+        .resample("ME")
         .last()
     )
+
+    if len(mensal) < 12:
+        raise Exception(
+            "Histórico insuficiente"
+        )    
 
     mensal["retorno"] = (
         mensal["Close"]
@@ -324,7 +329,7 @@ def calcular_indicadores(
 
         dividendos = (
             dividendos
-            .resample("M")
+            .resample("ME")
             .sum()
         )
 
