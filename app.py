@@ -30,10 +30,9 @@ st.set_page_config(
 
 ARQUIVO_CSV = "carteira.csv"
 
-# quantidade máxima de ativos processados
+# 0 = processa todos
 QTD_ATIVOS_BUSCAR = 0
 
-# período histórico Yahoo Finance
 PERIODO_HISTORICO = "730d"
 
 # ==========================================
@@ -122,18 +121,22 @@ def converter_numeros(df):
         if col in df.columns:
 
             df[col] = (
+
                 df[col]
                 .astype(str)
+
                 .str.replace(
                     ".",
                     "",
                     regex=False
                 )
+
                 .str.replace(
                     ",",
                     ".",
                     regex=False
                 )
+
                 .str.replace(
                     "-",
                     "",
@@ -239,15 +242,7 @@ def calcular_indicadores(
         .last()
     )
 
-    # =====================================
-    # PROTEÇÃO HISTÓRICO CURTO
-    # =====================================
-
     qtd_meses = len(mensal)
-
-    # =====================================
-    # RETORNO
-    # =====================================
 
     mensal["retorno"] = (
         mensal["Close"]
@@ -255,12 +250,18 @@ def calcular_indicadores(
     )
 
     # =====================================
-    # MÉDIAS MÓVEIS DINÂMICAS
+    # MÉDIAS MÓVEIS
     # =====================================
 
-    mm_curta = min(9, max(2, qtd_meses // 2))
+    mm_curta = min(
+        9,
+        max(2, qtd_meses // 2)
+    )
 
-    mm_longa = min(21, max(3, qtd_meses))
+    mm_longa = min(
+        21,
+        max(3, qtd_meses)
+    )
 
     mensal["mm9"] = (
         SMAIndicator(
@@ -279,7 +280,7 @@ def calcular_indicadores(
     )
 
     # =====================================
-    # RSI DINÂMICO
+    # RSI
     # =====================================
 
     rsi_window = min(
@@ -359,7 +360,9 @@ def calcular_indicadores(
             .sum()
         )
 
-        mensal["dividendos"] = dividendos
+        mensal["dividendos"] = (
+            dividendos
+        )
 
     mensal["dividendos"] = (
         mensal["dividendos"]
@@ -387,22 +390,22 @@ def calcular_indicadores(
     ) * 100
 
     # =====================================
-    # FLAG QUALIDADE HISTÓRICO
+    # QUALIDADE HISTÓRICO
     # =====================================
 
-    mensal["qualidade_historico"] = "ALTA"
+    qualidade = "ALTA"
 
     if qtd_meses < 12:
 
-        mensal[
-            "qualidade_historico"
-        ] = "BAIXA"
+        qualidade = "BAIXA"
 
     elif qtd_meses < 24:
 
-        mensal[
-            "qualidade_historico"
-        ] = "MEDIA"
+        qualidade = "MEDIA"
+
+    mensal[
+        "qualidade_historico"
+    ] = qualidade
 
     return mensal
 
@@ -414,13 +417,8 @@ def calcular_score(df):
 
     ultimo = df.iloc[-1]
 
-    # =====================
-    # SCORE QUANT
-    # =====================
-
     score_quant = 0
 
-    # tendência
     if (
         pd.notnull(
             ultimo["mm9"]
@@ -439,7 +437,6 @@ def calcular_score(df):
 
             score_quant += 30
 
-    # RSI
     if pd.notnull(
         ultimo["rsi"]
     ):
@@ -454,7 +451,6 @@ def calcular_score(df):
 
             score_quant += 20
 
-    # momentum
     if pd.notnull(
         ultimo["momentum"]
     ):
@@ -466,7 +462,6 @@ def calcular_score(df):
 
             score_quant += 20
 
-    # drawdown
     if pd.notnull(
         ultimo["drawdown"]
     ):
@@ -478,7 +473,6 @@ def calcular_score(df):
 
             score_quant += 20
 
-    # volatilidade
     if pd.notnull(
         ultimo["volatilidade"]
     ):
@@ -490,9 +484,9 @@ def calcular_score(df):
 
             score_quant += 10
 
-    # =====================
-    # SCORE FUND
-    # =====================
+    # =====================================
+    # SCORE FUNDAMENTALISTA
+    # =====================================
 
     score_fund = 0
 
@@ -512,7 +506,6 @@ def calcular_score(df):
 
             score_fund += 20
 
-    # dividendos consistentes
     if pd.notnull(
         ultimo["dividendos_12m"]
     ):
@@ -524,7 +517,6 @@ def calcular_score(df):
 
             score_fund += 30
 
-    # drawdown saudável
     if pd.notnull(
         ultimo["drawdown"]
     ):
@@ -536,10 +528,6 @@ def calcular_score(df):
 
             score_fund += 30
 
-    # =====================
-    # SCORE FINAL
-    # =====================
-
     score_final = (
 
         score_fund * 0.7
@@ -549,15 +537,22 @@ def calcular_score(df):
         score_quant * 0.3
     )
 
+    # =====================================
+    # PENALIZA HISTÓRICO
+    # =====================================
+
     qualidade = ultimo.get(
         "qualidade_historico",
         "ALTA"
     )
-    
-    if qualidade == "BAIXA":    
-        score_final *= 0.7    
-    elif qualidade == "MEDIA":    
-        score_final *= 0.85    
+
+    if qualidade == "BAIXA":
+
+        score_final *= 0.7
+
+    elif qualidade == "MEDIA":
+
+        score_final *= 0.85
 
     return {
 
@@ -605,7 +600,10 @@ def calcular_score(df):
             round(
                 score_final,
                 2
-            )
+            ),
+
+        "qualidade_historico":
+            qualidade
     }
 
 # ==========================================
@@ -633,11 +631,42 @@ def calcular_resgate(
     valor_resgate
 ):
 
+    # =====================================
+    # PRIORIZA:
+    # 1. RESGATE TOTAL
+    # 2. RESGATE PARCIAL
+    # 3. SCORE BAIXO
+    # =====================================
+
+    prioridade = {
+
+        "RESGATE TOTAL": 1,
+
+        "RESGATE PARCIAL": 2,
+
+        "MANTER": 3
+    }
+
+    df_carteira[
+        "prioridade"
+    ] = (
+
+        df_carteira[
+            "recomendacao"
+        ]
+
+        .map(prioridade)
+    )
+
     carteira_ordenada = (
 
         df_carteira
+
         .sort_values(
-            by="score",
+            by=[
+                "prioridade",
+                "score"
+            ],
             ascending=True
         )
     )
@@ -654,9 +683,15 @@ def calcular_resgate(
         if restante <= 0:
             break
 
-        # =====================
-        # PREÇO
-        # =====================
+        # ignora manter
+        if (
+            row[
+                "recomendacao"
+            ]
+            ==
+            "MANTER"
+        ):
+            continue
 
         preco = row.get(
             "preco_atual",
@@ -670,10 +705,6 @@ def calcular_resgate(
 
         if preco <= 0:
             continue
-
-        # =====================
-        # QUANTIDADE
-        # =====================
 
         qtd_disponivel = row.get(
             "disp_p_venda",
@@ -693,10 +724,6 @@ def calcular_resgate(
         if qtd_disponivel <= 0:
             continue
 
-        # =====================
-        # QTD VENDA
-        # =====================
-
         qtd_venda = min(
             qtd_disponivel,
             int(
@@ -711,33 +738,28 @@ def calcular_resgate(
             qtd_venda * preco
         )
 
-        if subtotal <= 0:
-            continue
+        comentario = ""
 
-        # =====================
-        # SCORE
-        # =====================
-
-        score = row.get(
-            "score",
-            0
-        )
-
-        if pd.isna(score):
-            score = 0
-
-        # =====================
-        # COMENTÁRIO
-        # =====================
-
-        if score < 50:
+        if (
+            row[
+                "recomendacao"
+            ]
+            ==
+            "RESGATE TOTAL"
+        ):
 
             comentario = (
-                "Baixo score e "
-                "deterioração"
+                "Deterioração "
+                "estrutural"
             )
 
-        elif score < 70:
+        elif (
+            row[
+                "recomendacao"
+            ]
+            ==
+            "RESGATE PARCIAL"
+        ):
 
             comentario = (
                 "Tendência "
@@ -753,10 +775,7 @@ def calcular_resgate(
         sugestoes.append({
 
             "Ativo":
-                row.get(
-                    "ativo",
-                    ""
-                ),
+                row["ativo"],
 
             "Quantidade":
                 qtd_venda,
@@ -768,13 +787,15 @@ def calcular_resgate(
                 round(subtotal, 2),
 
             "Score":
-                round(score, 2),
+                round(
+                    row["score"],
+                    2
+                ),
 
             "Recomendação":
-                row.get(
-                    "recomendacao",
-                    ""
-                ),
+                row[
+                    "recomendacao"
+                ],
 
             "Comentário":
                 comentario
@@ -802,9 +823,6 @@ try:
 
     carteira = carregar_carteira()
 
-    if QTD_ATIVOS_BUSCAR == 0:
-        QTD_ATIVOS_BUSCAR = len(carteira)
-        
 except Exception as e:
 
     st.error(
@@ -814,38 +832,16 @@ except Exception as e:
     st.stop()
 
 # ==========================================
-# LIMITA QUANTIDADE
+# LIMITA PROCESSAMENTO
 # ==========================================
 
-carteira = (
-    carteira
-    .head(
-        QTD_ATIVOS_BUSCAR
-    )
-)
+if QTD_ATIVOS_BUSCAR > 0:
 
-# ==========================================
-# DEBUG
-# ==========================================
-
-with st.expander(
-    "DEBUG"
-):
-
-    st.write(
-        "Colunas:"
-    )
-
-    st.write(
-        carteira.columns.tolist()
-    )
-
-    st.write(
-        "Dados:"
-    )
-
-    st.dataframe(
-        carteira.head()
+    carteira = (
+        carteira
+        .head(
+            QTD_ATIVOS_BUSCAR
+        )
     )
 
 # ==========================================
@@ -854,134 +850,178 @@ with st.expander(
 
 resultado = []
 
-with st.spinner(
-    "Processando ativos..."
+ativos_historico_ruim = []
+
+progress_bar = st.progress(0)
+
+status_text = st.empty()
+
+total_ativos = len(carteira)
+
+for i, (_, row) in enumerate(
+    carteira.iterrows()
 ):
 
-    for _, row in (
-        carteira.iterrows()
-    ):
+    ticker = row["ativo"]
 
-        ticker = row["ativo"]
+    progresso = (
+        (i + 1)
+        / total_ativos
+    )
 
-        try:
+    progress_bar.progress(
+        progresso
+    )
 
-            st.write(
-                f"Processando: "
-                f"{ticker}"
+    status_text.write(
+        f"""
+        Processando:
+        {ticker}
+        ({i+1}/{total_ativos})
+        """
+    )
+
+    try:
+
+        historico, dividendos = (
+            baixar_historico(
+                ticker,
+                PERIODO_HISTORICO
             )
+        )
 
-            historico, dividendos = (
-                baixar_historico(
+        indicadores = (
+            calcular_indicadores(
+                historico,
+                dividendos
+            )
+        )
+
+        score = (
+            calcular_score(
+                indicadores
+            )
+        )
+
+        if (
+            score[
+                "qualidade_historico"
+            ]
+            !=
+            "ALTA"
+        ):
+
+            ativos_historico_ruim.append({
+
+                "Ativo":
                     ticker,
-                    PERIODO_HISTORICO
-                )
-            )
 
-            indicadores = (
-                calcular_indicadores(
-                    historico,
-                    dividendos
-                )
-            )
-
-            score = (
-                calcular_score(
-                    indicadores
-                )
-            )
-
-            resultado.append({
-
-                "ativo":
-                    ticker,
-
-                "descricao":
-                    row.get(
-                        "descricao",
-                        ""
-                    ),
-
-                "carteira":
-                    row.get(
-                        "carteira",
-                        ""
-                    ),
-
-                "preco_atual":
-                    row.get(
-                        "preco_atual",
-                        0
-                    ),
-
-                "valor_atual":
-                    row.get(
-                        "valor_atual",
-                        0
-                    ),
-
-                "qtd_total":
-                    row.get(
-                        "qtd_total",
-                        0
-                    ),
-
-                "disp_p_venda":
-                    row.get(
-                        "disp_p_venda",
-                        0
-                    ),
-
-                "dy":
-                    score["dy"],
-
-                "rsi":
-                    score["rsi"],
-
-                "drawdown":
+                "Qualidade":
                     score[
-                        "drawdown"
-                    ],
-
-                "score_quant":
-                    score[
-                        "score_quant"
-                    ],
-
-                "score_fund":
-                    score[
-                        "score_fund"
-                    ],
-
-                "score":
-                    score[
-                        "score_final"
-                    ],
-
-                "recomendacao":
-                    gerar_recomendacao(
-                        score[
-                            "score_final"
-                        ]
-                    )
+                        "qualidade_historico"
+                    ]
             })
 
-        except Exception as e:
+        resultado.append({
 
-            st.error(
-                f"""
-                ERRO NO ATIVO:
-                {ticker}
+            "ativo":
+                ticker,
 
-                {str(e)}
-                """
-            )
+            "descricao":
+                row.get(
+                    "descricao",
+                    ""
+                ),
 
-            st.code(
-                traceback.format_exc()
-            )
+            "carteira":
+                row.get(
+                    "carteira",
+                    ""
+                ),
 
-            continue
+            "preco_atual":
+                row.get(
+                    "preco_atual",
+                    0
+                ),
+
+            "valor_atual":
+                row.get(
+                    "valor_atual",
+                    0
+                ),
+
+            "qtd_total":
+                row.get(
+                    "qtd_total",
+                    0
+                ),
+
+            "disp_p_venda":
+                row.get(
+                    "disp_p_venda",
+                    0
+                ),
+
+            "dy":
+                score["dy"],
+
+            "rsi":
+                score["rsi"],
+
+            "drawdown":
+                score[
+                    "drawdown"
+                ],
+
+            "score_quant":
+                score[
+                    "score_quant"
+                ],
+
+            "score_fund":
+                score[
+                    "score_fund"
+                ],
+
+            "score":
+                score[
+                    "score_final"
+                ],
+
+            "qualidade_historico":
+                score[
+                    "qualidade_historico"
+                ],
+
+            "recomendacao":
+                gerar_recomendacao(
+                    score[
+                        "score_final"
+                    ]
+                )
+        })
+
+    except Exception as e:
+
+        st.error(
+            f"""
+            ERRO NO ATIVO:
+            {ticker}
+
+            {str(e)}
+            """
+        )
+
+        st.code(
+            traceback.format_exc()
+        )
+
+        continue
+
+progress_bar.empty()
+
+status_text.empty()
 
 # ==========================================
 # DATAFRAME FINAL
@@ -989,15 +1029,6 @@ with st.spinner(
 
 df_resultado = pd.DataFrame(
     resultado
-)
-
-# ==========================================
-# PROTEÇÃO
-# ==========================================
-
-st.write(
-    "Quantidade processada:",
-    len(df_resultado)
 )
 
 if df_resultado.empty:
@@ -1013,34 +1044,27 @@ if df_resultado.empty:
 # ORDENAÇÃO
 # ==========================================
 
-if "score" in (
-    df_resultado.columns
-):
+df_ordenado = (
 
-    df_ordenado = (
+    df_resultado
 
-        df_resultado
-        .sort_values(
-            by="score",
-            ascending=False
-        )
+    .sort_values(
+        by="score",
+        ascending=False
     )
-
-else:
-
-    df_ordenado = (
-        df_resultado.copy()
-    )
+)
 
 # ==========================================
 # TABS
 # ==========================================
 
-tab1, tab2 = st.tabs([
+tab1, tab2, tab3 = st.tabs([
 
     "📊 Carteira",
 
-    "💰 Resgate"
+    "💰 Resgate",
+
+    "⚠ Histórico"
 ])
 
 # ==========================================
@@ -1054,7 +1078,32 @@ with tab1:
     )
 
     st.dataframe(
-        df_ordenado,
+        df_ordenado[
+            [
+
+                "ativo",
+
+                "descricao",
+
+                "qtd_total",
+
+                "preco_atual",
+
+                "valor_atual",
+
+                "dy",
+
+                "rsi",
+
+                "drawdown",
+
+                "score",
+
+                "qualidade_historico",
+
+                "recomendacao"
+            ]
+        ],
         use_container_width=True
     )
 
@@ -1083,7 +1132,7 @@ with tab2:
 
         sugestoes = (
             calcular_resgate(
-                df_resultado,
+                df_resultado.copy(),
                 valor_resgate
             )
         )
@@ -1091,8 +1140,11 @@ with tab2:
         if sugestoes.empty:
 
             st.warning(
-                "Nenhuma sugestão "
-                "encontrada."
+                """
+                Nenhum ativo
+                com indicação de
+                resgate encontrado.
+                """
             )
 
         else:
@@ -1114,6 +1166,40 @@ with tab2:
                 R$ {total:,.2f}
                 """
             )
+
+# ==========================================
+# TAB HISTÓRICO
+# ==========================================
+
+with tab3:
+
+    st.subheader(
+        "Ativos com histórico insuficiente"
+    )
+
+    if (
+        len(
+            ativos_historico_ruim
+        )
+        == 0
+    ):
+
+        st.success(
+            """
+            Nenhum ativo
+            com problema
+            de histórico.
+            """
+        )
+
+    else:
+
+        st.dataframe(
+            pd.DataFrame(
+                ativos_historico_ruim
+            ),
+            use_container_width=True
+        )
 
 # ==========================================
 # RODAPÉ
