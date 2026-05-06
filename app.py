@@ -239,24 +239,33 @@ def calcular_indicadores(
         .last()
     )
 
-    if len(mensal) < 12:
-        raise Exception(
-            "Histórico insuficiente"
-        )    
+    # =====================================
+    # PROTEÇÃO HISTÓRICO CURTO
+    # =====================================
+
+    qtd_meses = len(mensal)
+
+    # =====================================
+    # RETORNO
+    # =====================================
 
     mensal["retorno"] = (
         mensal["Close"]
         .pct_change()
     )
 
-    # =====================
-    # MÉDIAS MÓVEIS
-    # =====================
+    # =====================================
+    # MÉDIAS MÓVEIS DINÂMICAS
+    # =====================================
+
+    mm_curta = min(9, max(2, qtd_meses // 2))
+
+    mm_longa = min(21, max(3, qtd_meses))
 
     mensal["mm9"] = (
         SMAIndicator(
             mensal["Close"],
-            window=9
+            window=mm_curta
         )
         .sma_indicator()
     )
@@ -264,35 +273,47 @@ def calcular_indicadores(
     mensal["mm21"] = (
         SMAIndicator(
             mensal["Close"],
-            window=21
+            window=mm_longa
         )
         .sma_indicator()
     )
 
-    # =====================
-    # RSI
-    # =====================
+    # =====================================
+    # RSI DINÂMICO
+    # =====================================
+
+    rsi_window = min(
+        14,
+        max(2, qtd_meses - 1)
+    )
 
     mensal["rsi"] = (
         RSIIndicator(
             mensal["Close"],
-            window=14
+            window=rsi_window
         )
         .rsi()
     )
 
-    # =====================
+    # =====================================
     # MOMENTUM
-    # =====================
+    # =====================================
+
+    momentum_window = min(
+        6,
+        max(1, qtd_meses - 1)
+    )
 
     mensal["momentum"] = (
         mensal["Close"]
-        .pct_change(6)
+        .pct_change(
+            momentum_window
+        )
     )
 
-    # =====================
+    # =====================================
     # DRAWDOWN
-    # =====================
+    # =====================================
 
     rolling_max = (
         mensal["Close"]
@@ -304,22 +325,27 @@ def calcular_indicadores(
         - rolling_max
     ) / rolling_max
 
-    # =====================
+    # =====================================
     # VOLATILIDADE
-    # =====================
+    # =====================================
+
+    vol_window = min(
+        6,
+        max(2, qtd_meses)
+    )
 
     mensal["volatilidade"] = (
 
         mensal["retorno"]
-        .rolling(6)
+        .rolling(vol_window)
         .std()
 
         * np.sqrt(12)
     )
 
-    # =====================
+    # =====================================
     # DIVIDENDOS
-    # =====================
+    # =====================================
 
     if dividendos.empty:
 
@@ -333,19 +359,22 @@ def calcular_indicadores(
             .sum()
         )
 
-        mensal["dividendos"] = (
-            dividendos
-        )
+        mensal["dividendos"] = dividendos
 
     mensal["dividendos"] = (
         mensal["dividendos"]
         .fillna(0)
     )
 
+    div_window = min(
+        12,
+        max(1, qtd_meses)
+    )
+
     mensal["dividendos_12m"] = (
 
         mensal["dividendos"]
-        .rolling(12)
+        .rolling(div_window)
         .sum()
     )
 
@@ -356,6 +385,24 @@ def calcular_indicadores(
         / mensal["Close"]
 
     ) * 100
+
+    # =====================================
+    # FLAG QUALIDADE HISTÓRICO
+    # =====================================
+
+    mensal["qualidade_historico"] = "ALTA"
+
+    if qtd_meses < 12:
+
+        mensal[
+            "qualidade_historico"
+        ] = "BAIXA"
+
+    elif qtd_meses < 24:
+
+        mensal[
+            "qualidade_historico"
+        ] = "MEDIA"
 
     return mensal
 
@@ -501,6 +548,16 @@ def calcular_score(df):
 
         score_quant * 0.3
     )
+
+    qualidade = ultimo.get(
+        "qualidade_historico",
+        "ALTA"
+    )
+    
+    if qualidade == "BAIXA":    
+        score_final *= 0.7    
+    elif qualidade == "MEDIA":    
+        score_final *= 0.85    
 
     return {
 
