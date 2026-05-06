@@ -121,73 +121,69 @@ def converter_numeros(df):
         if col not in df.columns:
             continue
 
-        def tratar_numero(valor):
+        # converte para string
+        df[col] = (
+            df[col]
+            .astype(str)
+            .str.strip()
+        )
 
-            # =========================
-            # NULO
-            # =========================
-
-            if pd.isna(valor):
-                return 0.0
-
-            # =========================
-            # JÁ NUMÉRICO
-            # =========================
-
-            if isinstance(valor, (int, float)):
-                return float(valor)
-
-            valor = str(valor).strip()
-
-            if valor == "":
-                return 0.0
-
-            # remove espaços
-            valor = valor.replace(" ", "")
-
-            # =========================
-            # FORMATO:
-            # 1.234,56
-            # =========================
-
-            if (
-                "." in valor
-                and
-                "," in valor
-            ):
-
-                valor = valor.replace(".", "")
-                valor = valor.replace(",", ".")
-
-            # =========================
-            # FORMATO:
-            # 123,45
-            # =========================
-
-            elif "," in valor:
-
-                valor = valor.replace(",", ".")
-
-            # =========================
-            # REMOVE LIXO
-            # =========================
-
-            valor = re.sub(
-                r"[^0-9\.-]",
+        # remove NBSP invisível
+        df[col] = (
+            df[col]
+            .str.replace(
+                "\u00A0",
                 "",
-                valor
+                regex=False
             )
+        )
 
-            try:
+        # remove R$
+        df[col] = (
+            df[col]
+            .str.replace(
+                "R$",
+                "",
+                regex=False
+            )
+        )
 
-                return float(valor)
+        # remove separador milhar
+        df[col] = (
+            df[col]
+            .str.replace(
+                ".",
+                "",
+                regex=False
+            )
+        )
 
-            except:
+        # troca decimal BR
+        df[col] = (
+            df[col]
+            .str.replace(
+                ",",
+                ".",
+                regex=False
+            )
+        )
 
-                return 0.0
+        # vazio vira 0
+        df[col] = (
+            df[col]
+            .replace("", "0")
+        )
 
-        df[col] = df[col].apply(
-            tratar_numero
+        # conversão final
+        df[col] = pd.to_numeric(
+            df[col],
+            errors="coerce"
+        )
+
+        # NaN -> 0
+        df[col] = (
+            df[col]
+            .fillna(0)
         )
 
     return df
