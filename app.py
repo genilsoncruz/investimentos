@@ -118,41 +118,49 @@ def converter_numeros(df):
 
     for col in colunas_numericas:
 
-        if col in df.columns:
+        if col not in df.columns:
+            continue
 
-            df[col] = (
+        def tratar_numero(valor):
 
-                df[col]
-                .astype(str)
+            if pd.isna(valor):
+                return 0
 
-                .str.replace(
-                    ".",
-                    "",
-                    regex=False
-                )
+            valor = str(valor).strip()
 
-                .str.replace(
-                    ",",
-                    ".",
-                    regex=False
-                )
+            if valor == "":
+                return 0
 
-                .str.replace(
-                    "-",
-                    "",
-                    regex=False
-                )
-            )
+            # =========================
+            # FORMATO BR:
+            # 1.234,56
+            # =========================
 
-            df[col] = pd.to_numeric(
-                df[col],
-                errors="coerce"
-            )
+            if "," in valor and "." in valor:
 
-            df[col] = (
-                df[col]
-                .fillna(0)
-            )
+                valor = valor.replace(".", "")
+                valor = valor.replace(",", ".")
+
+            # =========================
+            # FORMATO BR:
+            # 123,45
+            # =========================
+
+            elif "," in valor:
+
+                valor = valor.replace(",", ".")
+
+            try:
+
+                return float(valor)
+
+            except:
+
+                return 0
+
+        df[col] = df[col].apply(
+            tratar_numero
+        )
 
     return df
 
