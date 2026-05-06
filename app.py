@@ -746,7 +746,7 @@ try:
     carteira = carregar_carteira()
 
     if QTD_ATIVOS_BUSCAR == 0:
-        QTD_ATIVOS_BUSCAR = len(df)
+        QTD_ATIVOS_BUSCAR = len(carteira)
         
 except Exception as e:
 
